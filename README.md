@@ -1,4 +1,4 @@
-# 🌑 Aswang Hunter — Enhanced Edition
+# 🌑 Aswang Hunter
 ### Game AI Case Study | Minimax with Alpha-Beta Pruning
 
 ---
