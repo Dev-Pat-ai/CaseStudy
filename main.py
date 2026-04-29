@@ -50,11 +50,11 @@ def main():
                     renderer.particles   = []
 
                 if game.state == GameState.PLAYING:
-                    if   event.key == pygame.K_UP:    game.move_hunter(-1,  0)
-                    elif event.key == pygame.K_DOWN:  game.move_hunter( 1,  0)
-                    elif event.key == pygame.K_LEFT:  game.move_hunter( 0, -1)
-                    elif event.key == pygame.K_RIGHT: game.move_hunter( 0,  1)
-                    elif event.key == pygame.K_SPACE: game.use_item()
+                    if   event.key in (pygame.K_UP,    pygame.K_w): game.move_hunter(-1,  0)
+                    elif event.key in (pygame.K_DOWN,  pygame.K_s): game.move_hunter( 1,  0)
+                    elif event.key in (pygame.K_LEFT,  pygame.K_a): game.move_hunter( 0, -1)
+                    elif event.key in (pygame.K_RIGHT, pygame.K_d): game.move_hunter( 0,  1)
+                    elif event.key == pygame.K_SPACE:                game.use_item()
 
         renderer.draw(game)
         clock.tick(FPS)

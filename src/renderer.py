@@ -30,7 +30,8 @@ from .constants import (
 )
 from .sprites import (
     draw_glow, draw_tree,
-    draw_hunter, draw_aswang,
+    draw_hunter, load_hunter_sprite,
+    draw_aswang,
     draw_garlic, draw_water, draw_amulet,
 )
 
@@ -72,7 +73,7 @@ class Renderer:
         pygame.font.init()
 
         # Fonts
-        self.fxl    = pygame.font.SysFont("Arial Black", 52, bold=True)  # Fixed: was Impact 48
+        self.fxl    = pygame.font.SysFont("Arial Black", 52, bold=True)
         self.flg    = pygame.font.SysFont("Arial",  20, bold=True)
         self.fmd    = pygame.font.SysFont("Arial",  16, bold=True)
         self.fsm    = pygame.font.SysFont("Arial",  13)
@@ -101,6 +102,19 @@ class Renderer:
         # Smooth HP display values (interpolate toward real HP)
         self.display_hhp = float(HUNTER_MAX_HP)
         self.display_ahp = float(ASWANG_MAX_HP)
+
+        # ── Load hunter sprite sheet ──────────────
+        # If the sprite sheet layout doesn't match the expected grid,
+        # HunterSprite will fall back to using the whole image as one frame.
+        try:
+            load_hunter_sprite(
+                sheet_path="assets/sprite/sprite_hunter.png",
+                frame_w=314,
+                frame_h=280,
+                scale=0.60,
+            )
+        except Exception as e:
+            print("Warning: could not load hunter sprite:", e)
 
     def update_screen(self, screen: pygame.Surface):
         self.screen = screen
@@ -154,7 +168,7 @@ class Renderer:
             pygame.draw.circle(self.grid_surf, c, (int(p[0]), int(p[1])), r)
 
     # ─────────────────────────────────────────────
-    #  ENHANCEMENT 2 — BLOOD MOON SKY
+    #  BLOOD MOON SKY
     # ─────────────────────────────────────────────
     def _draw_sky(self):
         """Replace the flat background fill with a gradient sky + blood moon."""
@@ -193,7 +207,7 @@ class Renderer:
             pygame.draw.line(self.grid_surf, C_GRID, (c * CELL, 0), (c * CELL, GRID_H), 1)
 
     # ─────────────────────────────────────────────
-    #  ENHANCEMENT 5 — ITEM PICKUP FLASH
+    #  ITEM PICKUP FLASH
     # ─────────────────────────────────────────────
     def _draw_item_flashes(self):
         for (r, c), frames in self.item_flash_cells.items():
@@ -226,13 +240,16 @@ class Renderer:
         ex = ac * CELL + CELL // 2
         ey = ar * CELL + CELL // 2
 
+        # Get hunter facing direction from game state
+        direction = getattr(game, "facing", "down")
+
         # Z-order: character in the lower row is drawn on top
         if ar >= hr:
-            draw_hunter(self.grid_surf, hx, hy, self.tick)
+            draw_hunter(self.grid_surf, hx, hy, self.tick, direction)
             draw_aswang(self.grid_surf, ex, ey, self.tick, game.dazed > 0)
         else:
             draw_aswang(self.grid_surf, ex, ey, self.tick, game.dazed > 0)
-            draw_hunter(self.grid_surf, hx, hy, self.tick)
+            draw_hunter(self.grid_surf, hx, hy, self.tick, direction)
 
         # Status badges above Aswang
         if game.slowed > 0:
@@ -264,11 +281,11 @@ class Renderer:
         """Wrap text to fit within max_width, returning list of lines."""
         if font.render(text, True, C_WHITE).get_width() <= max_width:
             return [text]
-        
+
         lines = []
         words = text.split()
         current_line = []
-        
+
         for word in words:
             test_line = " ".join(current_line + [word])
             if font.render(test_line, True, C_WHITE).get_width() <= max_width:
@@ -279,17 +296,17 @@ class Renderer:
                     current_line = [word]
                 else:
                     lines.append(word)
-                
+
                 if len(lines) >= max_lines:
                     break
-        
+
         if current_line and len(lines) < max_lines:
             lines.append(" ".join(current_line))
-        
+
         return lines if lines else [text[:20] + "..."]
 
-    def _render_text_with_shadow(self, surface: pygame.Surface, font: pygame.font.Font, 
-                                  text: str, color: tuple, pos: tuple, 
+    def _render_text_with_shadow(self, surface: pygame.Surface, font: pygame.font.Font,
+                                  text: str, color: tuple, pos: tuple,
                                   shadow_offset: int = 3, outline: bool = False):
         """Render text with shadow or outline for better readability."""
         if outline:
@@ -307,7 +324,7 @@ class Renderer:
         surface.blit(main, pos)
 
     # ─────────────────────────────────────────────
-    #  ENHANCEMENT 1 — FOG OF WAR
+    #  FOG OF WAR
     # ─────────────────────────────────────────────
     def _draw_fog(self, game):
         """
@@ -330,7 +347,6 @@ class Renderer:
                 if dist == 0:
                     alpha = 0
                 elif dist <= FOG_RADIUS:
-                    # Smooth quadratic fade-out near the edge of vision
                     alpha = int(210 * (dist / FOG_RADIUS) ** 1.8)
                 else:
                     alpha = 215
@@ -351,7 +367,7 @@ class Renderer:
             self.item_flash_cells[game.item_flash] = 15
             game.item_flash = None
 
-        # ── ENHANCEMENT 4 — Screen Shake trigger ──
+        # ── Screen Shake trigger ──
         if game.dmg_flash > 0:
             game.dmg_flash -= 1
             self.shake = min(self.shake + 5, 8)
@@ -362,7 +378,7 @@ class Renderer:
         if self.shake > 0:
             self.shake -= 1
 
-        # ── ENHANCEMENT 3 — Smooth HP interpolation ──
+        # ── Smooth HP interpolation ──
         self.display_hhp += (game.hhp - self.display_hhp) * 0.12
         self.display_ahp += (game.ahp - self.display_ahp) * 0.12
 
@@ -451,13 +467,11 @@ class Renderer:
         for i, (col, txt) in enumerate(legend):
             pygame.draw.circle(self.screen, col, (x + 13, y + 42 + i * 24), 5)
             self.screen.blit(self.fsm.render(txt, True, C_SILVER), (x + 26, y + 34 + i * 24))
-        
-        # Wrapped controls text
-        ctrl_lines = self._wrap_text(self.fsm, "← ↑ ↓ →  Move   |   SPACE  Use Item   |   R  Restart   |   Q  Quit", panel_w - 18)
+
+        ctrl_lines = self._wrap_text(self.fsm, "← ↑ ↓ → / W A S D  Move   |   SPACE  Use Item   |   R  Restart   |   Q  Quit", panel_w - 18)
         for i, line in enumerate(ctrl_lines):
             self.screen.blit(self.fsm.render(line, True, C_SILVER), (x + 9, y + panel_h - 36 + i * 16))
-        
-        # Wrapped message text
+
         msg_lines = self._wrap_text(self.flog, game.msg, panel_w - 18)
         for i, line in enumerate(msg_lines):
             self.screen.blit(self.flog.render(line, True, C_LOG), (x + 9, y + panel_h - 52 + i * 14))
@@ -486,7 +500,6 @@ class Renderer:
     #  GAME-OVER SCREEN
     # ─────────────────────────────────────────────
     def _draw_game_over(self, game, center_x=0, center_y=0):
-        # 🌫️ Dark overlay (fade effect)
         overlay = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 210))
         self.screen.blit(overlay, (0, 0))
@@ -494,12 +507,10 @@ class Renderer:
         fw, fh = 500, 280
         fx, fy = (SCREEN_W - fw) // 2, (SCREEN_H - fh) // 2
 
-        # 🧱 Frame (glass look)
         frame = pygame.Surface((fw, fh), pygame.SRCALPHA)
         frame.fill((20, 10, 10, 230))
         self.screen.blit(frame, (center_x + fx, center_y + fy))
 
-        # ✨ Border glow
         for i in range(4):
             col_border = (60 + i * 20, 20, 20)
             pygame.draw.rect(
@@ -509,7 +520,6 @@ class Renderer:
                 2
             )
 
-        # 🎯 State text
         if game.state == GameState.WIN:
             title, col, sub = "VICTORY",  (80, 220, 120), "The Aswang has been banished!"
         elif game.state == GameState.LOSE:
@@ -520,10 +530,8 @@ class Renderer:
         cx = center_x + SCREEN_W // 2
         cy = center_y + SCREEN_H // 2
 
-        # 🔥 Floating animation
         float_y = int(math.sin(self.tick * 0.05) * 6)
 
-        # ✨ Letter-by-letter title (matches title screen style)
         spacing = 8
         letters  = []
         total_w  = 0
@@ -535,7 +543,6 @@ class Renderer:
         lx     = cx - total_w // 2
         base_y = cy - 90
 
-        # Glow layers (5 passes, progressively less opaque)
         for i in range(5):
             glow_alpha = 50 - i * 10
             ox = lx
@@ -545,13 +552,11 @@ class Renderer:
                 self.screen.blit(glow, (ox - i, base_y - i + float_y))
                 ox += surf.get_width() + spacing
 
-        # Main letters on top
         ox = lx
         for surf in letters:
             self.screen.blit(surf, (ox, base_y + float_y))
             ox += surf.get_width() + spacing
 
-        # ✨ Subtitle with shadow
         sub_lines = self._wrap_text(self.fmd, sub, 400)
         for i, line in enumerate(sub_lines):
             sub_surf   = self.fmd.render(line, True, (220, 220, 220))
@@ -560,7 +565,6 @@ class Renderer:
             self.screen.blit(sub_shadow, (sub_rect.x + 2, sub_rect.y + 2))
             self.screen.blit(sub_surf,   sub_rect)
 
-        # 🏆 Score (bigger + clean) with shadow
         score_text  = f"FINAL SCORE: {game.score}"
         score_lines = self._wrap_text(self.flg, score_text, 400)
         for i, line in enumerate(score_lines):
@@ -570,7 +574,6 @@ class Renderer:
             self.screen.blit(score_shadow, (score_rect.x + 2, score_rect.y + 2))
             self.screen.blit(score_surf,   score_rect)
 
-        # 💡 Instructions (blinking) with shadow
         if (self.tick // 30) % 2 == 0:
             instr_text  = "Press R to Restart   |   Q to Quit"
             instr_lines = self._wrap_text(self.fsm, instr_text, 400)
@@ -603,7 +606,7 @@ def title_screen(screen: pygame.Surface, clock: pygame.time.Clock):
                 if e.key == pygame.K_q:
                     pygame.quit(); sys.exit()
 
-        # 🌌 Animated background
+        # Animated background
         for y in range(SCREEN_H):
             t = y / SCREEN_H
             r = int(10 + t * 10)
@@ -611,23 +614,23 @@ def title_screen(screen: pygame.Surface, clock: pygame.time.Clock):
             b = int(10 + t * 10)
             pygame.draw.line(screen, (r, g, b), (0, y), (SCREEN_W, y))
 
-        # 🌙 Blood moon
+        # Blood moon
         mx, my = SCREEN_W - 100, 100
         pulse = int(abs(math.sin(tick * 0.03)) * 6)
         pygame.draw.circle(screen, (120, 30, 30), (mx, my), 40 + pulse)
         pygame.draw.circle(screen, (200, 60, 60), (mx, my), 30 + pulse)
 
-        # 🌲 Trees sway
+        # Trees sway
         for c in range(GRID_COLS):
             offset = int(math.sin(tick * 0.03 + c) * 5)
             draw_tree(screen, c * CELL + CELL // 2 + offset, 90, tick)
 
-        # 🌫️ Fog overlay
+        # Fog overlay
         fog = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
         fog.fill((0, 0, 0, 90))
         screen.blit(fog, (0, 0))
 
-        # 🔥 TITLE (AAA STYLE)
+        # Title
         title_text = "ASWANG HUNTER"
         spacing = 8
         letters = []
@@ -642,27 +645,22 @@ def title_screen(screen: pygame.Surface, clock: pygame.time.Clock):
         start_x = SCREEN_W // 2 - total_width // 2
         base_y = SCREEN_H // 2 - 80
 
-        # ✨ Glow layers
         for i in range(5):
             glow_alpha = 50 - i * 10
             glow_offset = i * 2
             x = start_x
-
             for ch, surf in letters:
                 glow = fxl.render(ch, True, (255, 80, 80))
                 glow.set_alpha(glow_alpha)
                 screen.blit(glow, (x - glow_offset, base_y - glow_offset))
                 x += surf.get_width() + spacing
 
-        # 🎯 Floating animation
         float_y = int(math.sin(tick * 0.05) * 6)
-
         x = start_x
         for ch, surf in letters:
             screen.blit(surf, (x, base_y + float_y))
             x += surf.get_width() + spacing
 
-        # ✨ Subtitle fade-in
         if fade < 255:
             fade += 3
 
@@ -670,13 +668,11 @@ def title_screen(screen: pygame.Surface, clock: pygame.time.Clock):
         subtitle.set_alpha(fade)
         screen.blit(subtitle, subtitle.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2)))
 
-        # 💡 Blinking Start
         if (tick // 30) % 2 == 0:
             prompt = fmd.render("Press ENTER to Start", True, (255, 215, 0))
             screen.blit(prompt, prompt.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 60)))
 
-        # 🎮 Controls
-        controls = fsm.render("← ↑ ↓ → Move | SPACE Use Item | R Restart | Q Quit", True, (220, 220, 220))
+        controls = fsm.render("← ↑ ↓ → / WASD Move | SPACE Use Item | R Restart | Q Quit", True, (220, 220, 220))
         screen.blit(controls, controls.get_rect(center=(SCREEN_W // 2, SCREEN_H - 30)))
 
         pygame.display.flip()

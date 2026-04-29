@@ -59,6 +59,9 @@ class Game:
         self.dmg_flash = 0            # Countdown for damage visual flash (renderer)
         self.item_flash = None        # (r, c) cell just picked up (renderer reads & clears)
 
+        # ── Hunter facing direction (used by renderer for sprite animation) ──
+        self.facing = "down"          # "down" | "up" | "left" | "right"
+
         self._spawn()
 
     def _spawn(self):
@@ -110,6 +113,16 @@ class Game:
         if not self.valid(nr, nc):
             self.msg = "Blocked by an obstacle!"
             return
+
+        # ── Update facing direction based on movement ──
+        if dr == -1 and dc == 0:
+            self.facing = "up"
+        elif dr == 1 and dc == 0:
+            self.facing = "down"
+        elif dr == 0 and dc == -1:
+            self.facing = "left"
+        elif dr == 0 and dc == 1:
+            self.facing = "right"
 
         self.hpos   = (nr, nc)
         self.score += SCORE_PER_TURN

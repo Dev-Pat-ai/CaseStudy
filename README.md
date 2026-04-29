@@ -35,7 +35,7 @@ pip install pygame==2.6.1
 
 # 2. Run the game from the project root
 python main.py
-```
+.\.venv39\Scripts\python.exe main.py^C
 
 ---
 

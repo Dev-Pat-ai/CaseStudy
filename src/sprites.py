@@ -7,6 +7,7 @@ they can be used on any surface (grid_surf, screen, HUD panel, etc.).
 
 import pygame
 import math
+from typing import Optional
 
 from .constants import (
     C_TREE_TRK, C_TREE_TOP, C_TREE_TOP2, C_TREE_SHD,
@@ -14,6 +15,23 @@ from .constants import (
     C_GARLIC, C_WATER, C_AMULET,
     C_GOLD, C_WHITE,
 )
+from .hunter_sprite import HunterSprite
+
+
+# ─────────────────────────────────────────────
+#  HUNTER SPRITE  (module-level singleton)
+# ─────────────────────────────────────────────
+_hunter_sprite: Optional[HunterSprite] = None
+
+
+def load_hunter_sprite(sheet_path: str, frame_w: int, frame_h: int, scale: float = 0.25):
+    """
+    Call this ONCE during game initialisation (after pygame.init()).
+    Example:
+        load_hunter_sprite("assets/sprite/sprite_hunter.png", 313, 282, 0.25)
+    """
+    global _hunter_sprite
+    _hunter_sprite = HunterSprite(sheet_path, frame_w, frame_h, scale)
 
 
 # ─────────────────────────────────────────────
@@ -60,22 +78,28 @@ def draw_tree(surf, cx, cy, tick, shade=False):
 # ─────────────────────────────────────────────
 #  CHARACTERS
 # ─────────────────────────────────────────────
-def draw_hunter(surf, cx, cy, tick):
-    """The hunter sprite: cloak, head, bolo sword, and salakot hat."""
-    # Torch glow
+def draw_hunter(surf, cx, cy, tick, direction="down"):
+    """
+    Draw the hunter using the sprite sheet if loaded,
+    otherwise fall back to the original procedural drawing.
+    """
+    if _hunter_sprite is not None:
+        frame = _hunter_sprite.get_frame(direction, tick)
+        x = cx - _hunter_sprite.frame_w // 2
+        y = cy - _hunter_sprite.frame_h // 2
+        surf.blit(frame, (x, y))
+        return
+
+    # ── Fallback: original procedural hunter ──
     draw_glow(surf, (255, 180, 60), (cx, cy), 38, 60)
-    # Cloak body
     pts = [(cx, cy - 28), (cx - 13, cy + 10), (cx + 13, cy + 10)]
     pygame.draw.polygon(surf, C_HUNTER2, pts)
     pygame.draw.polygon(surf, C_HUNTER,  pts, 2)
-    # Head
     pygame.draw.circle(surf, C_HUNTER,  (cx, cy - 30), 11)
     pygame.draw.circle(surf, C_HUNTER2, (cx, cy - 30), 11, 2)
-    # Bolo (sword) with flicker
     sw = int(math.sin(tick * 0.15) * 2)
     pygame.draw.line(surf, C_GOLD,  (cx + 10, cy - 10), (cx + 22 + sw, cy + 4), 3)
     pygame.draw.line(surf, C_WHITE, (cx + 10, cy - 10), (cx + 14,      cy - 6), 1)
-    # Salakot (traditional hat)
     hat = [(cx - 14, cy - 34), (cx + 14, cy - 34), (cx, cy - 48)]
     pygame.draw.polygon(surf, (90, 55, 20),  hat)
     pygame.draw.polygon(surf, (120, 75, 30), hat, 1)
@@ -100,7 +124,7 @@ def draw_aswang(surf, cx, cy, tick, disabled=False):
     wing_col = (70, 10, 10) if disabled else (160, 25, 25)
     for side in (-1, 1):
         wpts = [
-            (cx + sway,            cy - 5),
+            (cx + sway,             cy - 5),
             (cx + side * 34 + sway, cy - 18 + int(math.sin(tick * 0.1) * 4)),
             (cx + side * 20 + sway, cy + 8),
         ]
@@ -148,8 +172,8 @@ def draw_amulet(surf, cx, cy, tick):
     """Pulsing sacred amulet (cross with gems) power-up."""
     pulse = abs(math.sin(tick * 0.07)) * 3
     draw_glow(surf, C_AMULET, (cx, cy), int(22 + pulse), 80)
-    pygame.draw.rect(surf, C_AMULET,      (cx - 3,  cy - 16, 6,  32), border_radius=2)
-    pygame.draw.rect(surf, C_AMULET,      (cx - 12, cy - 7,  24,  6), border_radius=2)
+    pygame.draw.rect(surf, C_AMULET,       (cx - 3,  cy - 16, 6,  32), border_radius=2)
+    pygame.draw.rect(surf, C_AMULET,       (cx - 12, cy - 7,  24,  6), border_radius=2)
     pygame.draw.rect(surf, (230, 150, 255), (cx - 2,  cy - 15, 4,  30), border_radius=1)
     pygame.draw.rect(surf, (230, 150, 255), (cx - 11, cy - 6,  22,  4), border_radius=1)
     for gx, gy in ((cx, cy - 12), (cx, cy + 8), (cx - 10, cy - 2), (cx + 10, cy - 2)):

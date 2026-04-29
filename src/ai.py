@@ -10,6 +10,7 @@ real game state is never permanently modified during look-ahead.
 
 import math
 import random
+from typing import Optional, Tuple
 
 from .constants import GRID_ROWS, GRID_COLS, Cell, AI_DEPTH
 
@@ -25,7 +26,7 @@ class AIEngine:
     """
 
     # ── Public interface ──────────────────────────────────────────────
-    def get_best_move(self, game) -> tuple | None:
+    def get_best_move(self, game) -> Optional[Tuple[int, int]]:
         """
         Return the best adjacent cell for the Aswang to move to,
         or None if no moves are available.
