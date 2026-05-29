@@ -11,7 +11,7 @@ import sys
 
 from src.constants import SCREEN_W, SCREEN_H, FPS, GameState
 from src.game     import Game
-from src.renderer import Renderer, title_screen
+from src.renderer import Renderer, title_screen, tutorial_screen
 
 
 CONFIRM_RESET = "reset"
@@ -36,6 +36,7 @@ def main():
 
     # Show splash/title screen
     title_screen(screen, clock)
+    tutorial_screen(screen, clock)
 
     game     = Game()
     renderer = Renderer(screen)

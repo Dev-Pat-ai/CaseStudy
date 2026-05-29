@@ -45,12 +45,17 @@ pip install -r requirements.txt
 python main.py
 ```
 
+After the title screen, the game shows a short tutorial before the first battle starts.
+
 ---
 
 ## Controls
 
 | Key | Action |
 |---|---|
+| ENTER / SPACE | Advance title/tutorial screens |
+| LEFT | Go back one tutorial page |
+| ESC | Skip tutorial |
 | Arrow keys / WASD | Move the Hunter |
 | SPACE | Use selected inventory item when adjacent to the Aswang |
 | R | Ask to reset the game |
