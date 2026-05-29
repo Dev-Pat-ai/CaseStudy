@@ -21,7 +21,8 @@ FPS        = 30
 # ─────────────────────────────────────────────
 #  AI
 # ─────────────────────────────────────────────
-AI_DEPTH   = 4
+AI_DEPTH       = 4
+FINAL_AI_DEPTH = 6
 
 # ─────────────────────────────────────────────
 #  VISUAL EFFECTS
@@ -32,7 +33,8 @@ FOG_RADIUS = 4          # Manhattan-distance vision radius for the hunter
 #  GAMEPLAY NUMBERS
 # ─────────────────────────────────────────────
 HUNTER_MAX_HP      = 100
-ASWANG_MAX_HP      = 150
+ASWANG_MAX_HP      = 100
+FINAL_ASWANG_MAX_HP = 200
 ASWANG_ATTACK_DMG  = 15
 
 GARLIC_DMG         = 20
@@ -44,8 +46,12 @@ AMULET_DAZE_TURNS  = 3
 
 SCORE_PER_TURN     = 5
 SCORE_ITEM_PICKUP  = 10
-SCORE_ITEM_USE     = 20
+SCORE_ITEM_USE     = 0
 SCORE_WIN_BONUS    = 100
+SCORE_FINAL_BONUS  = 250
+
+HEAL_AMOUNT        = 30
+REGULAR_BOSSES     = 3
 
 # ─────────────────────────────────────────────
 #  COLOUR PALETTE
@@ -91,12 +97,20 @@ class Cell(Enum):
     GARLIC   = 2
     WATER    = 3
     AMULET   = 4
+    WEAPON_PORTAL = 5
+    HEALING_PORTAL = 6
 
 class GameState(Enum):
-    PLAYING = 0
-    WIN     = 1
-    LOSE    = 2
-    DRAW    = 3
+    PLAYING       = 0
+    ROOM_CHOICE   = 1
+    WEAPON_CHOICE = 2
+    WIN           = 3
+    LOSE          = 4
+    DRAW          = 5
+
+class RoomType(Enum):
+    HEALING = 0
+    WEAPON  = 1
 
 # ─────────────────────────────────────────────
 #  STATIC MAP DATA

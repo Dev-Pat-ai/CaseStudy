@@ -18,7 +18,7 @@ import random
 from .constants import (
     GRID_COLS, GRID_ROWS, CELL, HUD_W, GRID_W, SCREEN_W, SCREEN_H, GRID_H,
     FPS, FOG_RADIUS,
-    HUNTER_MAX_HP, ASWANG_MAX_HP,
+    HUNTER_MAX_HP, ASWANG_MAX_HP, HEAL_AMOUNT, REGULAR_BOSSES,
     C_BG, C_TILE_A, C_TILE_B, C_TILE_C, C_GRID,
     C_HUNTER, C_HUNTER2, C_ASWANG, C_ASWANG2,
     C_GARLIC, C_WATER, C_AMULET,
@@ -26,7 +26,7 @@ from .constants import (
     C_GOLD, C_SILVER, C_WHITE, C_BLACK,
     C_RED_HP, C_YEL_HP, C_GRN_HP,
     C_LOG, C_DIM,
-    Cell, GameState,
+    Cell, GameState, RoomType,
 )
 from .sprites import (
     draw_glow, draw_tree,
@@ -228,15 +228,34 @@ class Renderer:
                 if   cell == Cell.GARLIC: draw_garlic(self.grid_surf, x, y, self.tick)
                 elif cell == Cell.WATER:  draw_water (self.grid_surf, x, y, self.tick)
                 elif cell == Cell.AMULET: draw_amulet(self.grid_surf, x, y, self.tick)
+                elif cell == Cell.WEAPON_PORTAL:
+                    self._draw_portal(x, y, C_AMULET, "W")
+                elif cell == Cell.HEALING_PORTAL:
+                    self._draw_portal(x, y, C_GRN_HP, "H")
+
+    def _draw_portal(self, x: int, y: int, color: tuple, label: str):
+        pulse = abs(math.sin(self.tick * 0.08)) * 8
+        draw_glow(self.grid_surf, color, (x, y), int(34 + pulse), 95)
+        pygame.draw.circle(self.grid_surf, color, (x, y), int(21 + pulse * 0.25), 3)
+        pygame.draw.circle(self.grid_surf, C_BLACK, (x, y), 15)
+        pygame.draw.circle(self.grid_surf, color, (x, y), 11, 2)
+        text = self.fmd.render(label, True, C_WHITE)
+        self.grid_surf.blit(text, text.get_rect(center=(x, y)))
 
     # ─────────────────────────────────────────────
     #  CHARACTERS
     # ─────────────────────────────────────────────
     def _draw_characters(self, game):
         hr, hc = game.hpos
-        ar, ac = game.apos
         hx = hc * CELL + CELL // 2
         hy = hr * CELL + CELL // 2
+
+        if game.state == GameState.ROOM_CHOICE:
+            draw_hunter(self.grid_surf, hx, hy, self.tick, getattr(game, "facing", "down"))
+            self._nametag(hx, hy + 26, "HUNTER", C_HUNTER)
+            return
+
+        ar, ac = game.apos
         ex = ac * CELL + CELL // 2
         ey = ar * CELL + CELL // 2
 
@@ -359,7 +378,7 @@ class Renderer:
     # ─────────────────────────────────────────────
     #  MASTER DRAW
     # ─────────────────────────────────────────────
-    def draw(self, game):
+    def draw(self, game, pending_command=None):
         self.tick += 1
 
         # ── Register item-pickup flash ──
@@ -410,8 +429,13 @@ class Renderer:
         # ── HUD drawn directly on screen (no shake) ──
         self._draw_hud(game, center_x, center_y)
 
-        if game.state != GameState.PLAYING:
+        if game.state == GameState.WEAPON_CHOICE:
+            self._draw_choice_overlay(game, center_x, center_y)
+        elif game.state not in (GameState.PLAYING, GameState.ROOM_CHOICE):
             self._draw_game_over(game, center_x, center_y)
+
+        if pending_command:
+            self._draw_confirm_overlay(pending_command, center_x, center_y)
 
         pygame.display.flip()
 
@@ -427,10 +451,14 @@ class Renderer:
         # ── Status panel ──
         self._panel(x, y, panel_w, panel_h)
         self.screen.blit(self.flg.render("STATUS", True, C_GOLD), (x + 9, y + 10))
+        aswang_max = getattr(game, "aswang_max_hp", ASWANG_MAX_HP)
         self._hp_bar(x + 9, y + 42, panel_w - 18, 18, self.display_hhp, HUNTER_MAX_HP, "Hunter", C_HUNTER)
-        self._hp_bar(x + 9, y + 78, panel_w - 18, 18, self.display_ahp, ASWANG_MAX_HP, "Aswang", C_ASWANG)
+        self._hp_bar(x + 9, y + 78, panel_w - 18, 18, self.display_ahp, aswang_max, "Aswang", C_ASWANG)
         self.screen.blit(self.flg.render(f"✦ SCORE: {game.score}", True, C_GOLD),   (x + 9, y + 116))
         self.screen.blit(self.fmd.render(f"TURN: {game.turn}",     True, C_SILVER), (x + 9, y + 142))
+        cleared = getattr(game, "bosses_cleared", 0)
+        room = "FINAL BOSS" if getattr(game, "is_final_boss", False) else f"BOSS {cleared + 1}/{REGULAR_BOSSES}"
+        self.screen.blit(self.fsm.render(room, True, C_SILVER), (x + 9, y + 166))
 
         y += panel_h + 10
 
@@ -468,7 +496,7 @@ class Renderer:
             pygame.draw.circle(self.screen, col, (x + 13, y + 42 + i * 24), 5)
             self.screen.blit(self.fsm.render(txt, True, C_SILVER), (x + 26, y + 34 + i * 24))
 
-        ctrl_lines = self._wrap_text(self.fsm, "← ↑ ↓ → / W A S D  Move   |   SPACE  Use Item   |   R  Restart   |   Q  Quit", panel_w - 18)
+        ctrl_lines = self._wrap_text(self.fsm, "Arrows/WASD Move | SPACE Use Item | R Reset? | Q Quit?", panel_w - 18)
         for i, line in enumerate(ctrl_lines):
             self.screen.blit(self.fsm.render(line, True, C_SILVER), (x + 9, y + panel_h - 36 + i * 16))
 
@@ -499,6 +527,54 @@ class Renderer:
     # ─────────────────────────────────────────────
     #  GAME-OVER SCREEN
     # ─────────────────────────────────────────────
+    def _draw_choice_overlay(self, game, center_x=0, center_y=0):
+        overlay = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 185))
+        self.screen.blit(overlay, (0, 0))
+
+        fw, fh = 560, 300
+        fx = center_x + (SCREEN_W - fw) // 2
+        fy = center_y + (SCREEN_H - fh) // 2
+        frame = pygame.Surface((fw, fh), pygame.SRCALPHA)
+        frame.fill((18, 28, 18, 235))
+        self.screen.blit(frame, (fx, fy))
+        pygame.draw.rect(self.screen, C_HUD_BORD, (fx, fy, fw, fh), 2)
+
+        if game.state == GameState.ROOM_CHOICE:
+            title = "CHOOSE NEXT ROOM"
+            prompt = "Press 1 or 2"
+            options = []
+            for room in game.room_options:
+                if room == RoomType.HEALING:
+                    options.append(("Healing Room", f"Recover up to {HEAL_AMOUNT} HP."))
+                else:
+                    options.append(("Weapon Room", "Choose one Garlic, Holy Water, or Amulet."))
+        else:
+            title = "CHOOSE ONE ITEM"
+            prompt = "Press 1, 2, or 3"
+            names = {
+                Cell.GARLIC: ("Garlic Clove", "-20 HP, slows Aswang for 2 turns."),
+                Cell.WATER: ("Holy Water", "-30 HP damage to Aswang."),
+                Cell.AMULET: ("Sacred Amulet", "-40 HP, random Aswang movement for 3 turns."),
+            }
+            options = [names[item] for item in game.weapon_options]
+
+        title_surf = self.flg.render(title, True, C_GOLD)
+        self.screen.blit(title_surf, title_surf.get_rect(center=(fx + fw // 2, fy + 34)))
+        prompt_surf = self.fsm.render(prompt, True, C_SILVER)
+        self.screen.blit(prompt_surf, prompt_surf.get_rect(center=(fx + fw // 2, fy + fh - 28)))
+
+        start_y = fy + 82
+        card_w = fw - 80
+        for i, (name, desc) in enumerate(options):
+            cy = start_y + i * 72
+            pygame.draw.rect(self.screen, (28, 55, 30), (fx + 40, cy, card_w, 54))
+            pygame.draw.rect(self.screen, C_HUD_BORD, (fx + 40, cy, card_w, 54), 1)
+            key = self.flg.render(str(i + 1), True, C_GOLD)
+            self.screen.blit(key, key.get_rect(center=(fx + 65, cy + 27)))
+            self.screen.blit(self.fmd.render(name, True, C_WHITE), (fx + 92, cy + 8))
+            self.screen.blit(self.fsm.render(desc, True, C_SILVER), (fx + 92, cy + 30))
+
     def _draw_game_over(self, game, center_x=0, center_y=0):
         overlay = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 210))
@@ -575,7 +651,7 @@ class Renderer:
             self.screen.blit(score_surf,   score_rect)
 
         if (self.tick // 30) % 2 == 0:
-            instr_text  = "Press R to Restart   |   Q to Quit"
+            instr_text  = "R Reset?   |   Q Quit?   |   Y Confirm / N Cancel"
             instr_lines = self._wrap_text(self.fsm, instr_text, 400)
             for i, line in enumerate(instr_lines):
                 instr_surf   = self.fsm.render(line, True, (200, 200, 200))
@@ -583,6 +659,33 @@ class Renderer:
                 instr_rect   = instr_surf.get_rect(center=(cx, cy + 70 + i * 20))
                 self.screen.blit(instr_shadow, (instr_rect.x + 2, instr_rect.y + 2))
                 self.screen.blit(instr_surf,   instr_rect)
+
+    def _draw_confirm_overlay(self, pending_command, center_x=0, center_y=0):
+        overlay = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 175))
+        self.screen.blit(overlay, (0, 0))
+
+        fw, fh = 470, 170
+        fx = center_x + (SCREEN_W - fw) // 2
+        fy = center_y + (SCREEN_H - fh) // 2
+
+        frame = pygame.Surface((fw, fh), pygame.SRCALPHA)
+        frame.fill((18, 28, 18, 245))
+        self.screen.blit(frame, (fx, fy))
+        pygame.draw.rect(self.screen, C_HUD_BORD, (fx, fy, fw, fh), 2)
+
+        is_quit = pending_command == "quit"
+        title = "QUIT GAME?" if is_quit else "RESET GAME?"
+        detail = "Your current run will be closed." if is_quit else "Your current run will start over."
+        prompt = "Press Y to confirm   |   Press N or ESC to cancel"
+
+        title_surf = self.flg.render(title, True, C_GOLD)
+        detail_surf = self.fmd.render(detail, True, C_SILVER)
+        prompt_surf = self.fsm.render(prompt, True, C_WHITE)
+
+        self.screen.blit(title_surf, title_surf.get_rect(center=(fx + fw // 2, fy + 38)))
+        self.screen.blit(detail_surf, detail_surf.get_rect(center=(fx + fw // 2, fy + 82)))
+        self.screen.blit(prompt_surf, prompt_surf.get_rect(center=(fx + fw // 2, fy + 125)))
 
 
 # ─────────────────────────────────────────────
@@ -595,16 +698,24 @@ def title_screen(screen: pygame.Surface, clock: pygame.time.Clock):
 
     tick = 0
     fade = 0
+    pending_quit = False
 
     while True:
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if e.type == pygame.KEYDOWN:
+                if pending_quit:
+                    if e.key == pygame.K_y:
+                        pygame.quit(); sys.exit()
+                    if e.key in (pygame.K_n, pygame.K_ESCAPE):
+                        pending_quit = False
+                    continue
+
                 if e.key in (pygame.K_RETURN, pygame.K_SPACE):
                     return
                 if e.key == pygame.K_q:
-                    pygame.quit(); sys.exit()
+                    pending_quit = True
 
         # Animated background
         for y in range(SCREEN_H):
@@ -672,8 +783,26 @@ def title_screen(screen: pygame.Surface, clock: pygame.time.Clock):
             prompt = fmd.render("Press ENTER to Start", True, (255, 215, 0))
             screen.blit(prompt, prompt.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 60)))
 
-        controls = fsm.render("← ↑ ↓ → / WASD Move | SPACE Use Item | R Restart | Q Quit", True, (220, 220, 220))
+        controls = fsm.render("Arrows/WASD Move | SPACE Use Item | R Reset? | Q Quit?", True, (220, 220, 220))
         screen.blit(controls, controls.get_rect(center=(SCREEN_W // 2, SCREEN_H - 30)))
+
+        if pending_quit:
+            overlay = pygame.Surface((screen.get_width(), screen.get_height()), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 175))
+            screen.blit(overlay, (0, 0))
+
+            fw, fh = 460, 150
+            fx = (SCREEN_W - fw) // 2
+            fy = (SCREEN_H - fh) // 2
+            frame = pygame.Surface((fw, fh), pygame.SRCALPHA)
+            frame.fill((18, 28, 18, 245))
+            screen.blit(frame, (fx, fy))
+            pygame.draw.rect(screen, C_HUD_BORD, (fx, fy, fw, fh), 2)
+
+            title = fmd.render("QUIT GAME?", True, C_GOLD)
+            detail = fsm.render("Press Y to confirm   |   Press N or ESC to cancel", True, C_WHITE)
+            screen.blit(title, title.get_rect(center=(SCREEN_W // 2, fy + 48)))
+            screen.blit(detail, detail.get_rect(center=(SCREEN_W // 2, fy + 96)))
 
         pygame.display.flip()
         clock.tick(FPS)

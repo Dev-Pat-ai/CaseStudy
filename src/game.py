@@ -1,72 +1,98 @@
 """
 game.py
-Core game logic: state management, turn sequencing, collision,
-power-up handling, and win/loss conditions.
+Core game logic: state management, room progression, turn sequencing,
+collision, power-up handling, and win/loss conditions.
 
-The Game class is deliberately UI-free — it only mutates data.
-The Renderer reads game state and draws it; the AIEngine reads and
-temporarily mutates game state during look-ahead (using snap/restore).
+The Game class is UI-free. Renderer reads game state and draws it; AIEngine
+reads and temporarily mutates game state during look-ahead with snap/restore.
 """
 
 import random
 
 from .constants import (
     GRID_ROWS, GRID_COLS, BASE, SPAWN, DIRS,
-    Cell, GameState,
-    HUNTER_MAX_HP, ASWANG_MAX_HP,
+    Cell, GameState, RoomType,
+    HUNTER_MAX_HP, ASWANG_MAX_HP, FINAL_ASWANG_MAX_HP,
     ASWANG_ATTACK_DMG,
     GARLIC_DMG, WATER_DMG, AMULET_DMG,
     GARLIC_SLOW_TURNS, AMULET_DAZE_TURNS,
     SCORE_PER_TURN, SCORE_ITEM_PICKUP, SCORE_ITEM_USE, SCORE_WIN_BONUS,
+    SCORE_FINAL_BONUS, HEAL_AMOUNT, REGULAR_BOSSES, AI_DEPTH, FINAL_AI_DEPTH,
 )
 from .ai import AIEngine
 
 
 class Game:
     """
-    Holds the complete, authoritative game state and exposes
-    move_hunter(), use_item(), and reset() as the public API.
+    Holds the authoritative game state and exposes player actions.
+
+    A run contains multiple regular boss rooms, safe rooms between bosses,
+    and one final boss room. Losing in combat ends the whole run.
     """
 
     def __init__(self):
         self.ai = AIEngine()
         self.reset()
 
-    # ─────────────────────────────────────────────
-    #  INITIALISATION
-    # ─────────────────────────────────────────────
     def reset(self):
-        """Restore every attribute to its starting value."""
+        """Start a fresh permadeath run from Stage 1."""
+        self.hhp = HUNTER_MAX_HP
+        self.item = None
+        self.turn = 0
+        self.score = 0
+        self.bosses_cleared = 0
+        self.is_final_boss = False
+        self.ai_depth = AI_DEPTH
+        self.room_options = []
+        self.weapon_options = []
+        self.dmg_flash = 0
+        self.item_flash = None
+        self.facing = "down"
+        self._start_boss_room(final=False)
+
+    def _start_boss_room(self, final: bool = False):
+        """Create a randomized 10x10 boss room while preserving run state."""
         self.grid = [[Cell.EMPTY] * GRID_COLS for _ in range(GRID_ROWS)]
         for r in range(GRID_ROWS):
             for c in range(GRID_COLS):
                 if BASE[r][c]:
                     self.grid[r][c] = Cell.OBSTACLE
 
-        self.hpos  = (0, 0)            # Hunter position  (row, col)
-        self.apos  = (9, 9)            # Aswang position  (row, col)
-        self.hhp   = HUNTER_MAX_HP
-        self.ahp   = ASWANG_MAX_HP
-        self.item  = None              # Currently held power-up
+        self.hpos = (0, 0)
+        self.apos = (9, 9)
+        self.aswang_max_hp = FINAL_ASWANG_MAX_HP if final else ASWANG_MAX_HP
+        self.ahp = self.aswang_max_hp
+        self.is_final_boss = final
+        self.ai_depth = FINAL_AI_DEPTH if final else AI_DEPTH
+        self.slowed = 0
+        self.dazed = 0
+        self.state = GameState.PLAYING
+        self.item_flash = None
+        self.dmg_flash = 0
 
-        self.turn   = 0
-        self.score  = 0
-        self.slowed = 0               # Turns the Aswang is slowed
-        self.dazed  = 0               # Turns the Aswang is dazed (random move)
+        extra_obstacles = 5 if final else 3
+        open_cells = [
+            (r, c)
+            for r in range(GRID_ROWS)
+            for c in range(GRID_COLS)
+            if self.grid[r][c] == Cell.EMPTY and (r, c) not in (self.hpos, self.apos)
+        ]
+        random.shuffle(open_cells)
+        for r, c in open_cells[:extra_obstacles]:
+            self.grid[r][c] = Cell.OBSTACLE
 
-        self.state     = GameState.PLAYING
-        self.msg       = "Find and defeat the Aswang!"
-        self.dmg_flash = 0            # Countdown for damage visual flash (renderer)
-        self.item_flash = None        # (r, c) cell just picked up (renderer reads & clears)
-
-        # ── Hunter facing direction (used by renderer for sprite animation) ──
-        self.facing = "down"          # "down" | "up" | "left" | "right"
+        if final:
+            self.msg = "Final Boss Room: defeat the stronger Aswang!"
+        else:
+            stage = self.bosses_cleared + 1
+            self.msg = f"Boss Room {stage}/{REGULAR_BOSSES}: defeat the Aswang!"
 
         self._spawn()
 
     def _spawn(self):
-        """Scatter power-ups across valid SPAWN cells."""
-        pool = [Cell.GARLIC, Cell.WATER, Cell.AMULET] * 3
+        """Scatter one-time power-ups across valid spawn cells."""
+        repeats = 2 if self.is_final_boss else 3
+        pool = [Cell.GARLIC, Cell.WATER, Cell.AMULET] * repeats
         random.shuffle(pool)
         candidates = [
             cell for cell in SPAWN
@@ -78,9 +104,6 @@ class Game:
         for i, cell in enumerate(candidates[: len(pool)]):
             self.grid[cell[0]][cell[1]] = pool[i]
 
-    # ─────────────────────────────────────────────
-    #  UTILITY
-    # ─────────────────────────────────────────────
     def valid(self, r: int, c: int) -> bool:
         return (
             0 <= r < GRID_ROWS
@@ -101,58 +124,56 @@ class Game:
             if self.grid[r][c] in (Cell.GARLIC, Cell.WATER, Cell.AMULET)
         )
 
-    # ─────────────────────────────────────────────
-    #  PLAYER ACTIONS
-    # ─────────────────────────────────────────────
     def move_hunter(self, dr: int, dc: int):
-        """Move the Hunter one step; trigger the AI turn afterwards."""
-        if self.state != GameState.PLAYING:
+        """Move the Hunter one step, then let the Aswang take its turn."""
+        if self.state not in (GameState.PLAYING, GameState.ROOM_CHOICE):
             return
 
         nr, nc = self.hpos[0] + dr, self.hpos[1] + dc
         if not self.valid(nr, nc):
-            self.msg = "Blocked by an obstacle!"
+            self.msg = "Invalid move: blocked or outside the grid."
             return
 
-        # ── Update facing direction based on movement ──
-        if dr == -1 and dc == 0:
+        if dr == -1:
             self.facing = "up"
-        elif dr == 1 and dc == 0:
+        elif dr == 1:
             self.facing = "down"
-        elif dr == 0 and dc == -1:
+        elif dc == -1:
             self.facing = "left"
-        elif dr == 0 and dc == 1:
+        elif dc == 1:
             self.facing = "right"
 
-        self.hpos   = (nr, nc)
-        self.score += SCORE_PER_TURN
+        self.hpos = (nr, nc)
 
-        # Pick up power-up if present
-        cell = self.grid[nr][nc]
-        names = {
-            Cell.GARLIC: "Garlic Clove",
-            Cell.WATER:  "Holy Water",
-            Cell.AMULET: "Sacred Amulet",
-        }
-        if cell in names:
-            self.item       = cell
-            self.grid[nr][nc] = Cell.EMPTY
-            self.item_flash = (nr, nc)          # signal renderer
-            self.msg        = f"Picked up {names[cell]}!"
-            self.score     += SCORE_ITEM_PICKUP
+        if self.state == GameState.ROOM_CHOICE:
+            self._enter_portal_at_hunter()
+            return
 
-        # Contact damage
-        if self.hpos == self.apos:
-            self.hhp       -= ASWANG_ATTACK_DMG
-            self.msg        = f"The Aswang attacks! -{ASWANG_ATTACK_DMG} HP"
-            self.dmg_flash  = 8
+        self._collect_item_at_hunter()
+        self._contact_damage("The Aswang attacks!")
 
         self._check()
         if self.state == GameState.PLAYING:
             self._ai_turn()
 
+    def _collect_item_at_hunter(self):
+        cell = self.grid[self.hpos[0]][self.hpos[1]]
+        names = {
+            Cell.GARLIC: "Garlic Clove",
+            Cell.WATER: "Holy Water",
+            Cell.AMULET: "Sacred Amulet",
+        }
+        if cell not in names:
+            return
+
+        self.item = cell
+        self.grid[self.hpos[0]][self.hpos[1]] = Cell.EMPTY
+        self.item_flash = self.hpos
+        self.score += SCORE_ITEM_PICKUP
+        self.msg = f"Picked up {names[cell]}!"
+
     def use_item(self):
-        """Use the currently held item against the Aswang (must be adjacent)."""
+        """Use the held power-up if the Hunter is adjacent to/on the Aswang."""
         if self.state != GameState.PLAYING:
             return
         if not self.item:
@@ -162,61 +183,130 @@ class Game:
             self.msg = "Must be adjacent to the Aswang!"
             return
 
-        it         = self.item
-        self.item  = None
+        it = self.item
+        self.item = None
         self.score += SCORE_ITEM_USE
 
         if it == Cell.GARLIC:
-            self.ahp    -= GARLIC_DMG
-            self.slowed  = GARLIC_SLOW_TURNS
-            self.msg     = f"Garlic! -{GARLIC_DMG} HP. Aswang slowed {GARLIC_SLOW_TURNS} turns!"
+            self.ahp -= GARLIC_DMG
+            self.slowed = GARLIC_SLOW_TURNS
+            self.msg = f"Garlic Clove used: Aswang -{GARLIC_DMG} HP and slowed."
         elif it == Cell.WATER:
             self.ahp -= WATER_DMG
-            self.msg  = f"Holy Water! -{WATER_DMG} HP to the Aswang!"
+            self.msg = f"Holy Water used: Aswang -{WATER_DMG} HP."
         elif it == Cell.AMULET:
-            self.ahp   -= AMULET_DMG
-            self.dazed  = AMULET_DAZE_TURNS
-            self.msg    = f"Sacred Amulet! -{AMULET_DMG} HP! Dazed {AMULET_DAZE_TURNS} turns!"
+            self.ahp -= AMULET_DMG
+            self.dazed = AMULET_DAZE_TURNS
+            self.msg = f"Sacred Amulet used: Aswang -{AMULET_DMG} HP and dazed."
 
         self._check()
         if self.state == GameState.PLAYING:
             self._ai_turn()
 
-    # ─────────────────────────────────────────────
-    #  AI TURN
-    # ─────────────────────────────────────────────
+    def choose_room(self, index: int):
+        """Resolve a safe-room choice after clearing a regular boss."""
+        if self.state != GameState.ROOM_CHOICE or index >= len(self.room_options):
+            return
+
+        choice = self.room_options[index]
+        self.room_options = []
+
+        if choice == RoomType.HEALING:
+            old_hp = self.hhp
+            self.hhp = min(HUNTER_MAX_HP, self.hhp + HEAL_AMOUNT)
+            self.msg = f"Healing Room: recovered {self.hhp - old_hp} HP."
+            self._advance_after_safe_room()
+            return
+
+        items = [Cell.GARLIC, Cell.WATER, Cell.AMULET]
+        random.shuffle(items)
+        self.weapon_options = items[: random.randint(2, 3)]
+        self.state = GameState.WEAPON_CHOICE
+        self.msg = "Weapon Room: choose one item with 1, 2, or 3."
+
+    def _enter_portal_at_hunter(self):
+        cell = self.grid[self.hpos[0]][self.hpos[1]]
+        if cell == Cell.HEALING_PORTAL:
+            self._enter_safe_room(RoomType.HEALING)
+        elif cell == Cell.WEAPON_PORTAL:
+            self._enter_safe_room(RoomType.WEAPON)
+        else:
+            self.msg = "Choose a portal: Weapon or Healing."
+
+    def _enter_safe_room(self, room_type: RoomType):
+        self.room_options = []
+        self.grid[self.hpos[0]][self.hpos[1]] = Cell.EMPTY
+
+        if room_type == RoomType.HEALING:
+            old_hp = self.hhp
+            self.hhp = min(HUNTER_MAX_HP, self.hhp + HEAL_AMOUNT)
+            self.msg = f"Healing Room: recovered {self.hhp - old_hp} HP."
+            self._advance_after_safe_room()
+            return
+
+        items = [Cell.GARLIC, Cell.WATER, Cell.AMULET]
+        random.shuffle(items)
+        self.weapon_options = items[: random.randint(2, 3)]
+        self.state = GameState.WEAPON_CHOICE
+        self.msg = "Weapon Room: choose one item with 1, 2, or 3."
+
+    def choose_weapon(self, index: int):
+        """Equip one offered weapon/power-up and advance to the next boss."""
+        if self.state != GameState.WEAPON_CHOICE or index >= len(self.weapon_options):
+            return
+
+        self.item = self.weapon_options[index]
+        names = {
+            Cell.GARLIC: "Garlic Clove",
+            Cell.WATER: "Holy Water",
+            Cell.AMULET: "Sacred Amulet",
+        }
+        self.weapon_options = []
+        self.msg = f"Equipped {names[self.item]}."
+        self._advance_after_safe_room()
+
+    def _advance_after_safe_room(self):
+        final = self.bosses_cleared >= REGULAR_BOSSES
+        self._start_boss_room(final=final)
+
     def _ai_turn(self):
         self.turn += 1
 
         if self.slowed > 0:
             self.slowed -= 1
-            return                              # Aswang skips this turn
+            self._check()
+            self._award_survival_points()
+            return
 
         if self.dazed > 0:
             self.dazed -= 1
-            mv = self.moves(self.apos)
-            if mv:
-                self.apos = random.choice(mv)  # Dazed: random movement
+            moves = self.moves(self.apos)
+            if moves:
+                self.apos = random.choice(moves)
         else:
             best = self.ai.get_best_move(self)
             if best:
                 self.apos = best
 
-        # Contact damage (Aswang lands on Hunter)
-        if self.apos == self.hpos:
-            self.hhp       -= ASWANG_ATTACK_DMG
-            self.msg        = f"The Aswang found you! -{ASWANG_ATTACK_DMG} HP"
-            self.dmg_flash  = 8
+        self._contact_damage("The Aswang found you!")
 
-        # Re-spawn items if the board is running low
         if self._count_pups() < 3:
             self._spawn()
 
         self._check()
+        self._award_survival_points()
 
-    # ─────────────────────────────────────────────
-    #  WIN / LOSS CHECK
-    # ─────────────────────────────────────────────
+    def _contact_damage(self, prefix: str):
+        if self.hpos != self.apos:
+            return
+        self.hhp -= ASWANG_ATTACK_DMG
+        self.msg = f"{prefix} -{ASWANG_ATTACK_DMG} HP"
+        self.dmg_flash = 8
+
+    def _award_survival_points(self):
+        if self.state == GameState.PLAYING:
+            self.score += SCORE_PER_TURN
+
     def _check(self):
         self.hhp = max(0, self.hhp)
         self.ahp = max(0, self.ahp)
@@ -224,28 +314,70 @@ class Game:
         if self.hhp <= 0 and self.ahp <= 0:
             self.state = GameState.DRAW
         elif self.ahp <= 0:
-            self.state  = GameState.WIN
-            self.score += SCORE_WIN_BONUS
+            self._clear_boss()
         elif self.hhp <= 0:
             self.state = GameState.LOSE
+            self.msg = "Permadeath: the run is over."
 
-    # ─────────────────────────────────────────────
-    #  STATE SNAPSHOT  (used by AIEngine during look-ahead)
-    # ─────────────────────────────────────────────
+    def _clear_boss(self):
+        self.score += SCORE_WIN_BONUS
+
+        if self.is_final_boss:
+            self.score += SCORE_FINAL_BONUS
+            self.state = GameState.WIN
+            self.msg = "Run complete! The final Aswang has been banished."
+            return
+
+        self.bosses_cleared += 1
+        self.room_options = []
+        self._spawn_room_portals()
+        self.state = GameState.ROOM_CHOICE
+        self.msg = "Boss cleared! Enter a portal: Weapon or Healing."
+
+    def _spawn_room_portals(self):
+        for r in range(GRID_ROWS):
+            for c in range(GRID_COLS):
+                if self.grid[r][c] in (
+                    Cell.GARLIC, Cell.WATER, Cell.AMULET,
+                    Cell.WEAPON_PORTAL, Cell.HEALING_PORTAL,
+                ):
+                    self.grid[r][c] = Cell.EMPTY
+
+        candidates = []
+        for r in range(GRID_ROWS):
+            for c in range(GRID_COLS):
+                pos = (r, c)
+                if pos == self.hpos or self.grid[r][c] != Cell.EMPTY:
+                    continue
+                distance = self.dist(self.hpos, pos)
+                candidates.append((distance, pos))
+
+        candidates.sort(key=lambda item: item[0])
+        nearby = [pos for _, pos in candidates if self.dist(self.hpos, pos) <= 4]
+        portal_cells = nearby[:2] if len(nearby) >= 2 else [pos for _, pos in candidates[:2]]
+
+        if len(portal_cells) >= 2:
+            self.grid[portal_cells[0][0]][portal_cells[0][1]] = Cell.WEAPON_PORTAL
+            self.grid[portal_cells[1][0]][portal_cells[1][1]] = Cell.HEALING_PORTAL
+
     def _snap(self) -> dict:
         return {
-            "hhp":  self.hhp,
-            "ahp":  self.ahp,
+            "hhp": self.hhp,
+            "ahp": self.ahp,
             "hpos": self.hpos,
             "apos": self.apos,
-            "sl":   self.slowed,
-            "dz":   self.dazed,
+            "sl": self.slowed,
+            "dz": self.dazed,
+            "depth": self.ai_depth,
+            "amax": self.aswang_max_hp,
         }
 
     def _restore(self, snap: dict):
-        self.hhp    = snap["hhp"]
-        self.ahp    = snap["ahp"]
-        self.hpos   = snap["hpos"]
-        self.apos   = snap["apos"]
+        self.hhp = snap["hhp"]
+        self.ahp = snap["ahp"]
+        self.hpos = snap["hpos"]
+        self.apos = snap["apos"]
         self.slowed = snap["sl"]
-        self.dazed  = snap["dz"]
+        self.dazed = snap["dz"]
+        self.ai_depth = snap["depth"]
+        self.aswang_max_hp = snap["amax"]

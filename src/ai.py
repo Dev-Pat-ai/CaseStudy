@@ -12,7 +12,7 @@ import math
 import random
 from typing import Optional, Tuple
 
-from .constants import GRID_ROWS, GRID_COLS, Cell, AI_DEPTH
+from .constants import GRID_ROWS, GRID_COLS, Cell, AI_DEPTH, ASWANG_ATTACK_DMG
 
 
 class AIEngine:
@@ -48,9 +48,10 @@ class AIEngine:
             snap = game._snap()
             game.apos = move
             if game.apos == game.hpos:
-                game.hhp -= 15          # simulate contact damage
+                game.hhp -= ASWANG_ATTACK_DMG
 
-            value = self._minimax(game, AI_DEPTH - 1, alpha, beta, is_maximizing=False)
+            depth = getattr(game, "ai_depth", AI_DEPTH)
+            value = self._minimax(game, depth - 1, alpha, beta, is_maximizing=False)
             game._restore(snap)
 
             if value > best_value:
@@ -86,7 +87,7 @@ class AIEngine:
                 snap      = game._snap()
                 game.apos = move
                 if game.apos == game.hpos:
-                    game.hhp -= 15
+                    game.hhp -= ASWANG_ATTACK_DMG
 
                 value = self._minimax(game, depth - 1, alpha, beta, False)
                 best  = max(best, value)
@@ -103,7 +104,7 @@ class AIEngine:
                 snap      = game._snap()
                 game.hpos = move
                 if game.hpos == game.apos:
-                    game.hhp -= 15
+                    game.hhp -= ASWANG_ATTACK_DMG
 
                 value = self._minimax(game, depth - 1, alpha, beta, True)
                 best  = min(best, value)
@@ -122,13 +123,9 @@ class AIEngine:
         Higher score  → better for the Aswang.
         Lower score   → better for the Hunter.
 
-        Formula
-        -------
-        eval = (10 / distance(Aswang, Hunter))
-             + (100 - Hunter_HP)
-             - Aswang_HP
-             - 5 * powerups_near_hunter(radius=3)
-             - 5 * (1 if aswang is dazed)
+        Higher values favor the Aswang:
+        close distance, low Hunter HP, healthy Aswang HP, fewer nearby
+        Hunter power-ups, and no active Aswang debuffs.
         """
         distance = (
             abs(game.apos[0] - game.hpos[0])
@@ -143,10 +140,12 @@ class AIEngine:
             and abs(r - game.hpos[0]) + abs(c - game.hpos[1]) <= 3
         )
 
+        aswang_max = getattr(game, "aswang_max_hp", 100)
         return (
-            (10 / (distance + 0.1))
-            + (100 - game.hhp)
-            - game.ahp
-            - 5 * nearby_powerups
-            - (5 if game.dazed > 0 else 0)
+            8 * (10 - distance)
+            + 2 * (100 - game.hhp)
+            - 2 * (aswang_max - game.ahp)
+            - 6 * nearby_powerups
+            - (18 if game.dazed > 0 else 0)
+            - (12 if game.slowed > 0 else 0)
         )

@@ -45,8 +45,8 @@ python main.py
 |---|---|
 | ← ↑ ↓ → | Move the Hunter |
 | SPACE | Use held item (must be adjacent to Aswang) |
-| R | Restart the game |
-| Q | Quit |
+| R | Ask to reset the game, then press Y to confirm or N to cancel |
+| Q | Ask to quit, then press Y to confirm or N to cancel |
 
 ---
 

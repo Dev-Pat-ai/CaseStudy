@@ -7,6 +7,7 @@ they can be used on any surface (grid_surf, screen, HUD panel, etc.).
 
 import pygame
 import math
+from pathlib import Path
 from typing import Optional
 
 from .constants import (
@@ -22,6 +23,9 @@ from .hunter_sprite import HunterSprite
 #  HUNTER SPRITE  (module-level singleton)
 # ─────────────────────────────────────────────
 _hunter_sprite: Optional[HunterSprite] = None
+_ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "sprite"
+_asset_cache: dict[tuple[str, tuple[int, int]], Optional[pygame.Surface]] = {}
+_sheet_cache: dict[tuple[str, int], Optional[list[pygame.Surface]]] = {}
 
 
 def load_hunter_sprite(sheet_path: str, frame_w: int, frame_h: int, scale: float = 0.25):
@@ -32,6 +36,55 @@ def load_hunter_sprite(sheet_path: str, frame_w: int, frame_h: int, scale: float
     """
     global _hunter_sprite
     _hunter_sprite = HunterSprite(sheet_path, frame_w, frame_h, scale)
+
+
+def _load_asset(name: str, size: tuple[int, int]) -> Optional[pygame.Surface]:
+    key = (name, size)
+    if key in _asset_cache:
+        return _asset_cache[key]
+
+    path = _ASSET_DIR / name
+    try:
+        img = pygame.image.load(str(path)).convert_alpha()
+        if img.get_size() != size:
+            img = pygame.transform.smoothscale(img, size)
+    except (FileNotFoundError, pygame.error):
+        img = None
+
+    _asset_cache[key] = img
+    return img
+
+
+def _blit_asset(surf, name: str, cx: int, cy: int, size: tuple[int, int]) -> bool:
+    img = _load_asset(name, size)
+    if img is None:
+        return False
+
+    surf.blit(img, img.get_rect(center=(cx, cy)))
+    return True
+
+
+def _load_sheet_frames(name: str, frame_count: int, size: Optional[tuple[int, int]] = None) -> Optional[list[pygame.Surface]]:
+    key = (name, frame_count, size)
+    if key in _sheet_cache:
+        return _sheet_cache[key]
+
+    path = _ASSET_DIR / name
+    try:
+        sheet = pygame.image.load(str(path)).convert_alpha()
+        frame_w = sheet.get_width() // frame_count
+        frame_h = sheet.get_height()
+        frames = [
+            sheet.subsurface(pygame.Rect(i * frame_w, 0, frame_w, frame_h)).copy()
+            for i in range(frame_count)
+        ]
+        if size is not None:
+            frames = [pygame.transform.smoothscale(frame, size) for frame in frames]
+    except (FileNotFoundError, pygame.error, ValueError):
+        frames = None
+
+    _sheet_cache[key] = frames
+    return frames
 
 
 # ─────────────────────────────────────────────
@@ -114,6 +167,27 @@ def draw_aswang(surf, cx, cy, tick, disabled=False):
     gcol    = (100, 30, 30) if disabled else (200, 30, 30)
     draw_glow(surf, gcol, (cx + sway, cy), 42, 90)
 
+    frames = _load_sheet_frames("aswang_flying.png", 4, (78, 58))
+    if frames:
+        sprite = frames[(tick // 8) % len(frames)]
+        if disabled:
+            sprite = sprite.copy()
+            wash = pygame.Surface(sprite.get_size(), pygame.SRCALPHA)
+            wash.fill((120, 120, 145, 255))
+            sprite.blit(wash, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        surf.blit(sprite, sprite.get_rect(center=(cx + sway, cy)))
+        return
+
+    sprite = _load_asset("aswang.png", (82, 82))
+    if sprite is not None:
+        if disabled:
+            sprite = sprite.copy()
+            wash = pygame.Surface(sprite.get_size(), pygame.SRCALPHA)
+            wash.fill((120, 120, 145, 255))
+            sprite.blit(wash, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        surf.blit(sprite, sprite.get_rect(center=(cx + sway, cy)))
+        return
+
     # Body
     body_col = (100, 15, 15) if disabled else C_ASWANG2
     outline  = (150, 40, 40) if disabled else C_ASWANG
@@ -150,6 +224,9 @@ def draw_garlic(surf, cx, cy, tick):
     """Pulsing garlic clove power-up."""
     pulse = abs(math.sin(tick * 0.07)) * 3
     draw_glow(surf, C_GARLIC, (cx, cy), int(22 + pulse), 70)
+    if _blit_asset(surf, "garlic.png", cx, cy, (44, 44)):
+        return
+
     pygame.draw.ellipse(surf, (200, 210, 100), (cx - 10, cy - 6, 20, 18))
     pygame.draw.ellipse(surf, C_GARLIC,        (cx - 10, cy - 6, 20, 18), 2)
     pygame.draw.line(surf, (160, 170,  80), (cx, cy - 6),  (cx, cy - 16), 3)
@@ -161,6 +238,9 @@ def draw_water(surf, cx, cy, tick):
     """Pulsing holy-water vial power-up."""
     pulse = abs(math.sin(tick * 0.07)) * 3
     draw_glow(surf, C_WATER, (cx, cy), int(22 + pulse), 70)
+    if _blit_asset(surf, "holy_water.png", cx, cy, (44, 44)):
+        return
+
     pygame.draw.rect(surf, (60,  130, 200), (cx - 7, cy - 12, 14, 20), border_radius=4)
     pygame.draw.rect(surf, C_WATER,         (cx - 7, cy - 12, 14, 20), 2, border_radius=4)
     pygame.draw.rect(surf, (80,  150, 220), (cx - 4, cy - 20, 8,  10))
@@ -172,6 +252,9 @@ def draw_amulet(surf, cx, cy, tick):
     """Pulsing sacred amulet (cross with gems) power-up."""
     pulse = abs(math.sin(tick * 0.07)) * 3
     draw_glow(surf, C_AMULET, (cx, cy), int(22 + pulse), 80)
+    if _blit_asset(surf, "amulet.png", cx, cy, (44, 44)):
+        return
+
     pygame.draw.rect(surf, C_AMULET,       (cx - 3,  cy - 16, 6,  32), border_radius=2)
     pygame.draw.rect(surf, C_AMULET,       (cx - 12, cy - 7,  24,  6), border_radius=2)
     pygame.draw.rect(surf, (230, 150, 255), (cx - 2,  cy - 15, 4,  30), border_radius=1)
