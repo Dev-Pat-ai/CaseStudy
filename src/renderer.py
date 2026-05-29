@@ -708,10 +708,10 @@ class Renderer:
 #  TITLE SCREEN  (module-level function)
 # ─────────────────────────────────────────────
 def tutorial_screen(screen: pygame.Surface, clock: pygame.time.Clock):
-    ftitle = pygame.font.SysFont("Arial Black", 42, bold=True)
-    fhead  = pygame.font.SysFont("Arial", 24, bold=True)
-    fbody  = pygame.font.SysFont("Arial", 18)
-    fsmall = pygame.font.SysFont("Arial", 14)
+    ftitle = pygame.font.SysFont("Arial Black", 34, bold=True)
+    fhead  = pygame.font.SysFont("Arial", 22, bold=True)
+    fbody  = pygame.font.SysFont("Arial", 17)
+    fsmall = pygame.font.SysFont("Arial", 13)
 
     pages = [
         (
@@ -743,21 +743,27 @@ def tutorial_screen(screen: pygame.Surface, clock: pygame.time.Clock):
         ),
     ]
 
-    def draw_panel(rect):
+    def draw_panel(rect, fill=(18, 32, 20, 230), border=C_HUD_BORD):
         panel = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
-        panel.fill((18, 32, 20, 230))
+        panel.fill(fill)
         screen.blit(panel, rect.topleft)
-        pygame.draw.rect(screen, C_HUD_BORD, rect, 2)
+        pygame.draw.rect(screen, border, rect, 2)
 
     def draw_text_lines(lines, x, y, width, line_h=30):
         cy = y
-        for text in lines:
+        for number, text in enumerate(lines, start=1):
+            badge = pygame.Rect(x, cy - 2, 26, 26)
+            pygame.draw.rect(screen, (38, 70, 40), badge)
+            pygame.draw.rect(screen, C_HUD_BORD, badge, 1)
+            n = fsmall.render(str(number), True, C_GOLD)
+            screen.blit(n, n.get_rect(center=badge.center))
+
             words = text.split()
             line = ""
             wrapped = []
             for word in words:
                 test = f"{line} {word}".strip()
-                if fbody.render(test, True, C_WHITE).get_width() <= width:
+                if fbody.render(test, True, C_WHITE).get_width() <= width - 42:
                     line = test
                 else:
                     if line:
@@ -768,36 +774,41 @@ def tutorial_screen(screen: pygame.Surface, clock: pygame.time.Clock):
 
             for wrapped_line in wrapped:
                 surf = fbody.render(wrapped_line, True, C_SILVER)
-                screen.blit(surf, (x, cy))
+                screen.blit(surf, (x + 42, cy))
                 cy += line_h
-            cy += 8
+            cy += 14
 
     def draw_demo(kind, rect, tick):
         cx = rect.centerx
         cy = rect.centery
         if kind == "movement":
+            grid_x = rect.x + 36
+            grid_y = rect.y + 42
+            tile_size = 44
             for row in range(3):
                 for col in range(5):
-                    tile = pygame.Rect(rect.x + 34 + col * 54, rect.y + 35 + row * 54, 54, 54)
+                    tile = pygame.Rect(grid_x + col * tile_size, grid_y + row * tile_size, tile_size, tile_size)
                     pygame.draw.rect(screen, (22, 42, 24), tile)
                     pygame.draw.rect(screen, (60, 100, 60), tile, 1)
-            draw_hunter(screen, rect.x + 34 + 54, rect.y + 35 + 54, tick, "right")
-            draw_aswang(screen, rect.x + 34 + 54 * 3, rect.y + 35 + 54, tick)
-            arrow = fhead.render("WASD / ARROWS", True, C_GOLD)
-            screen.blit(arrow, arrow.get_rect(center=(cx, rect.bottom - 34)))
+            draw_hunter(screen, grid_x + tile_size, grid_y + tile_size, tick, "right")
+            draw_aswang(screen, grid_x + tile_size * 3, grid_y + tile_size, tick)
+            arrow = fhead.render("MOVE", True, C_GOLD)
+            screen.blit(arrow, arrow.get_rect(center=(cx, rect.bottom - 45)))
+            keys = fbody.render("WASD / ARROWS", True, C_SILVER)
+            screen.blit(keys, keys.get_rect(center=(cx, rect.bottom - 20)))
         elif kind == "items":
-            slot_w = 82
-            start_x = cx - slot_w * 3 // 2 - 10
+            slot_w = 72
+            start_x = cx - (slot_w * 3 + 20) // 2
             items = [Cell.GARLIC, Cell.WATER, Cell.AMULET]
             labels = ["Garlic", "Water", "Amulet"]
             for i, item in enumerate(items):
                 sx = start_x + i * (slot_w + 10)
-                box = pygame.Rect(sx, rect.y + 42, slot_w, 118)
+                box = pygame.Rect(sx, rect.y + 40, slot_w, 108)
                 pygame.draw.rect(screen, (22, 42, 24), box)
                 pygame.draw.rect(screen, C_GOLD if i == 0 else C_HUD_BORD, box, 2)
                 key = fsmall.render(str(i + 1), True, C_GOLD)
                 screen.blit(key, (sx + 8, rect.y + 48))
-                ix, iy = sx + slot_w // 2, rect.y + 95
+                ix, iy = sx + slot_w // 2, rect.y + 88
                 if item == Cell.GARLIC:
                     draw_garlic(screen, ix, iy, tick)
                 elif item == Cell.WATER:
@@ -805,20 +816,24 @@ def tutorial_screen(screen: pygame.Surface, clock: pygame.time.Clock):
                 else:
                     draw_amulet(screen, ix, iy, tick)
                 label = fsmall.render(labels[i], True, C_SILVER)
-                screen.blit(label, label.get_rect(center=(ix, rect.y + 142)))
-            prompt = fhead.render("1-3 SELECT   SPACE USE", True, C_GOLD)
-            screen.blit(prompt, prompt.get_rect(center=(cx, rect.bottom - 34)))
+                screen.blit(label, label.get_rect(center=(ix, rect.y + 130)))
+            prompt = fhead.render("SELECT + USE", True, C_GOLD)
+            screen.blit(prompt, prompt.get_rect(center=(cx, rect.bottom - 45)))
+            keys = fbody.render("1-3 then SPACE", True, C_SILVER)
+            screen.blit(keys, keys.get_rect(center=(cx, rect.bottom - 20)))
         else:
-            draw_glow(screen, C_AMULET, (cx - 70, cy), 42, 90)
-            pygame.draw.circle(screen, C_AMULET, (cx - 70, cy), 24, 3)
+            draw_glow(screen, C_AMULET, (cx - 68, cy - 16), 38, 90)
+            pygame.draw.circle(screen, C_AMULET, (cx - 68, cy - 16), 22, 3)
             weapon = fbody.render("Weapon", True, C_WHITE)
-            screen.blit(weapon, weapon.get_rect(center=(cx - 70, cy + 44)))
-            draw_glow(screen, C_GRN_HP, (cx + 70, cy), 42, 90)
-            pygame.draw.circle(screen, C_GRN_HP, (cx + 70, cy), 24, 3)
+            screen.blit(weapon, weapon.get_rect(center=(cx - 68, cy + 30)))
+            draw_glow(screen, C_GRN_HP, (cx + 68, cy - 16), 38, 90)
+            pygame.draw.circle(screen, C_GRN_HP, (cx + 68, cy - 16), 22, 3)
             heal = fbody.render("Healing", True, C_WHITE)
-            screen.blit(heal, heal.get_rect(center=(cx + 70, cy + 44)))
-            prompt = fhead.render("CHOOSE A PORTAL AFTER EACH BOSS", True, C_GOLD)
-            screen.blit(prompt, prompt.get_rect(center=(cx, rect.bottom - 34)))
+            screen.blit(heal, heal.get_rect(center=(cx + 68, cy + 30)))
+            prompt = fhead.render("AFTER EACH BOSS", True, C_GOLD)
+            screen.blit(prompt, prompt.get_rect(center=(cx, rect.bottom - 45)))
+            keys = fbody.render("Pick a portal room", True, C_SILVER)
+            screen.blit(keys, keys.get_rect(center=(cx, rect.bottom - 20)))
 
     page = 0
     tick = 0
@@ -851,22 +866,31 @@ def tutorial_screen(screen: pygame.Surface, clock: pygame.time.Clock):
 
         title, body, kind = pages[page]
         title_surf = ftitle.render("HOW TO PLAY", True, C_GOLD)
-        screen.blit(title_surf, title_surf.get_rect(center=(SCREEN_W // 2, 70)))
+        screen.blit(title_surf, title_surf.get_rect(center=(SCREEN_W // 2, 74)))
 
-        frame = pygame.Rect(95, 120, SCREEN_W - 190, 430)
+        frame = pygame.Rect(70, 126, SCREEN_W - 140, 410)
         draw_panel(frame)
 
-        head = fhead.render(title, True, C_WHITE)
-        screen.blit(head, (frame.x + 32, frame.y + 26))
-        draw_text_lines(body, frame.x + 32, frame.y + 76, 430)
+        left_rect = pygame.Rect(frame.x + 28, frame.y + 70, 390, 250)
+        right_rect = pygame.Rect(frame.right - 322, frame.y + 70, 282, 250)
 
-        demo_rect = pygame.Rect(frame.right - 340, frame.y + 70, 290, 250)
-        pygame.draw.rect(screen, (10, 18, 12), demo_rect)
-        pygame.draw.rect(screen, C_HUD_BORD, demo_rect, 1)
-        draw_demo(kind, demo_rect, tick)
+        head = fhead.render(title, True, C_WHITE)
+        screen.blit(head, (frame.x + 32, frame.y + 28))
+        divider_y = frame.y + 62
+        pygame.draw.line(screen, C_HUD_BORD, (frame.x + 30, divider_y), (frame.right - 30, divider_y), 1)
+
+        draw_text_lines(body, left_rect.x, left_rect.y, left_rect.w)
+
+        draw_panel(right_rect, fill=(10, 18, 12, 230), border=C_HUD_BORD)
+        draw_demo(kind, right_rect, tick)
+
+        for i in range(len(pages)):
+            dot_x = SCREEN_W // 2 - 24 + i * 24
+            color = C_GOLD if i == page else C_HUD_BORD
+            pygame.draw.circle(screen, color, (dot_x, frame.bottom - 30), 6)
 
         footer = fsmall.render(
-            f"Page {page + 1}/{len(pages)}   ENTER/SPACE Next   LEFT Back   ESC Skip   Q Quit",
+            f"Page {page + 1}/{len(pages)}    ENTER/SPACE Next    LEFT Back    ESC Skip    Q Quit",
             True,
             C_SILVER,
         )
