@@ -464,23 +464,39 @@ class Renderer:
 
         # ── Held item panel ──
         self._panel(x, y, panel_w, panel_h)
-        self.screen.blit(self.flg.render("HELD ITEM", True, C_GOLD), (x + 9, y + 10))
-        if game.item:
+        self.screen.blit(self.flg.render("INVENTORY", True, C_GOLD), (x + 9, y + 10))
+        selected_item = game.selected_item() if hasattr(game, "selected_item") else None
+        if selected_item:
             inames = {Cell.GARLIC: "Garlic Clove", Cell.WATER: "Holy Water", Cell.AMULET: "Sacred Amulet"}
             icols  = {Cell.GARLIC: C_GARLIC,       Cell.WATER: C_WATER,      Cell.AMULET: C_AMULET}
             ix = x + panel_w // 2
             iy = y + 92
-            if   game.item == Cell.GARLIC: draw_garlic(self.screen, ix, iy, self.tick)
-            elif game.item == Cell.WATER:  draw_water (self.screen, ix, iy, self.tick)
-            elif game.item == Cell.AMULET: draw_amulet(self.screen, ix, iy, self.tick)
-            item_name = inames[game.item]
+            if   selected_item == Cell.GARLIC: draw_garlic(self.screen, ix, iy, self.tick)
+            elif selected_item == Cell.WATER:  draw_water (self.screen, ix, iy, self.tick)
+            elif selected_item == Cell.AMULET: draw_amulet(self.screen, ix, iy, self.tick)
+            item_name = inames[selected_item]
             t1 = self.fmd.render(item_name, True, C_SILVER)
-            t2 = self.fsm.render("[SPACE] use if adjacent", True, C_SILVER)
+            slot_text = f"Slot {getattr(game, 'selected_item_index', 0) + 1}/{len(getattr(game, 'inventory', []))}"
+            t0 = self.fsm.render(slot_text, True, C_GOLD)
+            t2 = self.fsm.render("[1-3] select  [SPACE] use", True, C_SILVER)
+            self.screen.blit(t0, t0.get_rect(center=(x + panel_w // 2, y + 62)))
             self.screen.blit(t1, t1.get_rect(center=(x + panel_w // 2, y + 40)))
             self.screen.blit(t2, t2.get_rect(center=(x + panel_w // 2, y + panel_h - 28)))
         else:
             t = self.fmd.render("— empty —", True, C_SILVER)
             self.screen.blit(t, t.get_rect(center=(x + panel_w // 2, y + panel_h // 2)))
+
+        inv_names = {Cell.GARLIC: "Garlic", Cell.WATER: "Water", Cell.AMULET: "Amulet"}
+        inventory = getattr(game, "inventory", [])
+        slots = []
+        for slot_index in range(3):
+            if slot_index < len(inventory):
+                marker = ">" if slot_index == getattr(game, "selected_item_index", 0) else " "
+                slots.append(f"{marker}{slot_index + 1}:{inv_names[inventory[slot_index]]}")
+            else:
+                slots.append(f" {slot_index + 1}:Empty")
+        slot_line = self.fsm.render("  ".join(slots), True, C_SILVER)
+        self.screen.blit(slot_line, slot_line.get_rect(center=(x + panel_w // 2, y + panel_h - 52)))
 
         y += panel_h + 10
 
@@ -496,7 +512,7 @@ class Renderer:
             pygame.draw.circle(self.screen, col, (x + 13, y + 42 + i * 24), 5)
             self.screen.blit(self.fsm.render(txt, True, C_SILVER), (x + 26, y + 34 + i * 24))
 
-        ctrl_lines = self._wrap_text(self.fsm, "Arrows/WASD Move | SPACE Use Item | R Reset? | Q Quit?", panel_w - 18)
+        ctrl_lines = self._wrap_text(self.fsm, "Arrows/WASD Move | 1-3 Select | SPACE Use | R Reset? | Q Quit?", panel_w - 18)
         for i, line in enumerate(ctrl_lines):
             self.screen.blit(self.fsm.render(line, True, C_SILVER), (x + 9, y + panel_h - 36 + i * 16))
 
@@ -783,7 +799,7 @@ def title_screen(screen: pygame.Surface, clock: pygame.time.Clock):
             prompt = fmd.render("Press ENTER to Start", True, (255, 215, 0))
             screen.blit(prompt, prompt.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 60)))
 
-        controls = fsm.render("Arrows/WASD Move | SPACE Use Item | R Reset? | Q Quit?", True, (220, 220, 220))
+        controls = fsm.render("Arrows/WASD Move | 1-3 Select | SPACE Use | R Reset? | Q Quit?", True, (220, 220, 220))
         screen.blit(controls, controls.get_rect(center=(SCREEN_W // 2, SCREEN_H - 30)))
 
         if pending_quit:

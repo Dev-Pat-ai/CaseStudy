@@ -1,106 +1,155 @@
-# 🌑 Aswang Hunter
-### Game AI Case Study | Minimax with Alpha-Beta Pruning
+# Aswang Hunter
+
+Game AI Case Study using Minimax with Alpha-Beta Pruning, built with Python and Pygame.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
-```
+```text
 aswang-hunter/
-│
-├── main.py                 ← Entry point — run this
-├── requirements.txt        ← pip dependencies
-│
-├── src/
-│   ├── __init__.py
-│   ├── constants.py        ← All colours, grid sizes, gameplay numbers, enums, map data
-│   ├── sprites.py          ← Procedural sprite drawing functions (hunter, aswang, items)
-│   ├── ai.py               ← AIEngine: Minimax + Alpha-Beta Pruning
-│   ├── game.py             ← Game class: state, turn logic, win/loss
-│   └── renderer.py         ← Renderer class + title_screen()
-│
-└── assets/
-    ├── fonts/              ← Drop custom .ttf fonts here (future use)
-    ├── sounds/             ← Drop BGM / SFX .ogg or .wav files here (future use)
-    └── images/             ← Drop sprite sheets here (future use)
+|-- main.py                         Entry point
+|-- requirements.txt                Python dependencies
+|
+|-- src/
+|   |-- constants.py                Colors, grid sizes, gameplay values, enums, map data
+|   |-- ai.py                       AIEngine: Minimax + Alpha-Beta Pruning
+|   |-- game.py                     Game state, turn logic, room flow, win/loss logic
+|   |-- hunter_sprite.py            Hunter sprite-sheet loader
+|   |-- renderer.py                 Pygame renderer, HUD, overlays, title screen
+|   `-- sprites.py                  Sprite drawing and PNG sprite loading
+|
+|-- assets/
+|   |-- sprite/
+|   |   |-- sprite_hunter.png       Hunter sprite sheet
+|   |   |-- aswang_flying.png       Animated Aswang flying sheet
+|   |   |-- aswang.png              Backup/static Aswang sprite
+|   |   |-- garlic.png              Garlic item sprite
+|   |   |-- holy_water.png          Holy water item sprite
+|   |   |-- amulet.png              Amulet item sprite
+|   |   `-- tile_floor.png          Optional generated tile asset
+|   `-- sounds/                     Future sound effects/music
+|
+`-- tools/
+    |-- generate_sprite_assets.py   Generates simple PNG placeholder assets
+    `-- extract_aswang_sprite_sheet.py
+                                      Extracts clean Aswang frames from a full reference sheet
 ```
 
 ---
 
-## 🚀 How to Run
+## How to Run
 
 ```bash
-# 1. Install dependency
-pip install pygame==2.6.1
-
-# 2. Run the game from the project root
+pip install -r requirements.txt
 python main.py
-.\.venv39\Scripts\python.exe main.py^C
+```
 
 ---
 
-## 🎮 Controls
+## Controls
 
 | Key | Action |
 |---|---|
-| ← ↑ ↓ → | Move the Hunter |
-| SPACE | Use held item (must be adjacent to Aswang) |
-| R | Ask to reset the game, then press Y to confirm or N to cancel |
-| Q | Ask to quit, then press Y to confirm or N to cancel |
+| Arrow keys / WASD | Move the Hunter |
+| SPACE | Use selected inventory item when adjacent to the Aswang |
+| R | Ask to reset the game |
+| Q | Ask to quit |
+| Y | Confirm reset/quit prompt |
+| N or ESC | Cancel reset/quit prompt |
+| 1, 2, 3 | Select inventory slot during combat, or choose item when prompted |
 
 ---
 
-## ✨ Visual Enhancements (vs. original)
+## Visual Features
 
-| # | Enhancement | Where implemented |
-|---|---|---|
-| 1 | **Fog of War** | `renderer._draw_fog()` — reveals cells within Manhattan distance 4 of the Hunter; Aswang's cell always partially visible |
-| 2 | **Blood Moon Sky** | `renderer._draw_sky()` — animated gradient sky + pulsing red moon replaces flat background fill |
-| 3 | **Smooth HP Bars** | `renderer.display_hhp/ahp` — display values interpolate toward real HP each frame (0.12 lerp factor) |
-| 4 | **Screen Shake** | `renderer.shake` — grid surface blitted with random ±8 px offset for 8 frames on damage; HUD is unaffected |
-| 5 | **Item Pickup Flash** | `renderer.item_flash_cells` — golden cell flash (15 frames) when the Hunter walks over a power-up |
+| Feature | Where |
+|---|---|
+| Fog of war | `Renderer._draw_fog()` |
+| Blood moon sky | `Renderer._draw_sky()` |
+| Smooth HP bars | `Renderer.display_hhp` and `Renderer.display_ahp` |
+| Screen shake | `Renderer.shake` |
+| Item pickup flash | `Renderer.item_flash_cells` |
+| Animated hunter sprite | `src/hunter_sprite.py` and `draw_hunter()` |
+| Animated Aswang flying sprite | `assets/sprite/aswang_flying.png` and `draw_aswang()` |
+| Confirmation overlays | `Renderer._draw_confirm_overlay()` |
 
 ---
 
-## 🤖 AI Algorithm: Minimax with Alpha-Beta Pruning
+## Sprite Notes
 
-### Overview
-The Aswang is controlled by `AIEngine` in `src/ai.py`.  
-Every turn it calls `get_best_move(game)`, which runs a depth-4 Minimax search
-over all possible future positions and returns the cell that maximises the
-heuristic evaluation score.
+The Aswang uses a cleaned sprite sheet at:
 
-### Heuristic (`_evaluate`)
-```
-eval = (10 / distance(Aswang, Hunter))   ← closer = better for Aswang
-     + (100 − Hunter_HP)                 ← lower Hunter HP = better
-     − Aswang_HP                         ← lower Aswang HP = worse
-     − 5 × powerups_near_hunter(r≤3)     ← nearby items help the Hunter
-     − 5 × (1 if dazed)                  ← dazed state penalises Aswang
+```text
+assets/sprite/aswang_flying.png
 ```
 
-### Alpha-Beta Pruning
-`alpha` tracks the Aswang's (Maximizer) best guaranteed value;
-`beta` tracks the Hunter's (Minimizer) best guaranteed value.
-A branch is pruned whenever `beta ≤ alpha`, skipping subtrees that
-can never influence the final decision.
+If you have a new full Aswang reference sheet, regenerate the in-game flying sheet with:
+
+```bash
+python tools/extract_aswang_sprite_sheet.py C:/path/to/Aswang.png
+```
+
+The generated PNG assets are loaded first. If an asset is missing, the game falls back to procedural Pygame drawing so it can still run.
 
 ---
 
-## 📊 Game Rules Summary
+## Inventory Rules
+
+The Hunter has 3 inventory slots.
+
+| Rule | Behavior |
+|---|---|
+| Picking up an item | Adds it to inventory if there is space |
+| Inventory full | Ground pickup stays on the map |
+| Regular boss room pickups | 3 total pickups spawn at room start |
+| Final boss room pickups | 2 total pickups spawn at room start |
+| Mid-fight item respawn | Keeps at least 1 pickup on the map if inventory has space |
+| Weapon Room reward | Adds the chosen item to inventory; if full, replaces the selected slot |
+| Select item | Press `1`, `2`, or `3` during combat |
+| Use item | Press `SPACE` while adjacent to the Aswang |
+| Used item | Removed from inventory |
+| No selected item | The first available item is selected automatically |
+
+---
+
+## AI Algorithm
+
+The Aswang is controlled by `AIEngine` in `src/ai.py`.
+
+Each Aswang turn calls `get_best_move(game)`, which searches possible future moves using Minimax with Alpha-Beta Pruning and chooses the move with the best heuristic score. The search now simulates Hunter movement, item pickup, and item use so the Aswang can react to inventory danger instead of only chasing directly.
+
+Simplified heuristic idea:
+
+```text
+score = pathfinding_pressure
+      + escape_route_pressure
+      + hunter_damage_bonus
+      - aswang_damage_penalty
+      - hunter_inventory_danger
+      - powerup_access_penalty
+      - dazed_penalty
+```
+
+The AI uses pathfinding distance instead of plain Manhattan distance, checks how many safe escape routes the Hunter has, and values moves that contest nearby power-ups. Its current personality is aggressive: it strongly prefers closing distance and attacking, but it becomes more cautious when the Hunter has enough item damage to finish it.
+
+`alpha` tracks the Aswang's best guaranteed value, while `beta` tracks the Hunter's best guaranteed value. Branches are skipped when they can no longer improve the result.
+
+---
+
+## Game Rules Summary
 
 | | Hunter | Aswang |
-|---|---|---|
-| Starting HP | 100 | 80 |
-| Contact damage | −15 HP per turn | — |
-| Garlic | — | −20 HP + slowed 2 turns |
-| Holy Water | — | −30 HP |
-| Sacred Amulet | — | −40 HP + dazed 3 turns |
+|---|---:|---:|
+| Starting HP | 100 | 100 |
+| Final boss HP | 100 | 200 |
+| Contact damage | -15 HP per Aswang attack | - |
+| Garlic | - | -20 HP and slowed |
+| Holy Water | - | -30 HP |
+| Sacred Amulet | - | -40 HP and dazed |
 
-**Win** — Aswang HP reaches 0 first (+100 score bonus)  
-**Lose** — Hunter HP reaches 0 first  
-**Draw** — Both reach 0 simultaneously
+Win by defeating all boss rooms, including the final Aswang. Losing in combat ends the run.
 
 ---
 
-*Built with Python 3.11+ and Pygame 2.6*
+Built with Python 3 and Pygame 2.6.

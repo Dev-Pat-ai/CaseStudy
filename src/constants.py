@@ -52,6 +52,10 @@ SCORE_FINAL_BONUS  = 250
 
 HEAL_AMOUNT        = 30
 REGULAR_BOSSES     = 3
+INVENTORY_SIZE     = 3
+POWERUPS_PER_ROOM  = 3
+FINAL_POWERUPS_PER_ROOM = 2
+MIN_POWERUPS_ON_MAP = 1
 
 # ─────────────────────────────────────────────
 #  COLOUR PALETTE

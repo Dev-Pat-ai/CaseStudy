@@ -17,7 +17,9 @@ from .constants import (
     GARLIC_DMG, WATER_DMG, AMULET_DMG,
     GARLIC_SLOW_TURNS, AMULET_DAZE_TURNS,
     SCORE_PER_TURN, SCORE_ITEM_PICKUP, SCORE_ITEM_USE, SCORE_WIN_BONUS,
-    SCORE_FINAL_BONUS, HEAL_AMOUNT, REGULAR_BOSSES, AI_DEPTH, FINAL_AI_DEPTH,
+    SCORE_FINAL_BONUS, HEAL_AMOUNT, REGULAR_BOSSES, INVENTORY_SIZE,
+    POWERUPS_PER_ROOM, FINAL_POWERUPS_PER_ROOM, MIN_POWERUPS_ON_MAP,
+    AI_DEPTH, FINAL_AI_DEPTH,
 )
 from .ai import AIEngine
 
@@ -37,7 +39,8 @@ class Game:
     def reset(self):
         """Start a fresh permadeath run from Stage 1."""
         self.hhp = HUNTER_MAX_HP
-        self.item = None
+        self.inventory = []
+        self.selected_item_index = 0
         self.turn = 0
         self.score = 0
         self.bosses_cleared = 0
@@ -87,12 +90,19 @@ class Game:
             stage = self.bosses_cleared + 1
             self.msg = f"Boss Room {stage}/{REGULAR_BOSSES}: defeat the Aswang!"
 
-        self._spawn()
+        self._spawn_initial_powerups()
 
-    def _spawn(self):
+    def _spawn_initial_powerups(self):
         """Scatter one-time power-ups across valid spawn cells."""
-        repeats = 2 if self.is_final_boss else 3
-        pool = [Cell.GARLIC, Cell.WATER, Cell.AMULET] * repeats
+        count = FINAL_POWERUPS_PER_ROOM if self.is_final_boss else POWERUPS_PER_ROOM
+        self._spawn_powerups(count)
+
+    def _spawn_powerups(self, count: int):
+        """Scatter up to count power-ups across valid spawn cells."""
+        if count <= 0:
+            return
+
+        pool = [Cell.GARLIC, Cell.WATER, Cell.AMULET]
         random.shuffle(pool)
         candidates = [
             cell for cell in SPAWN
@@ -101,8 +111,15 @@ class Game:
             and cell != self.apos
         ]
         random.shuffle(candidates)
-        for i, cell in enumerate(candidates[: len(pool)]):
-            self.grid[cell[0]][cell[1]] = pool[i]
+        for i, cell in enumerate(candidates[:count]):
+            self.grid[cell[0]][cell[1]] = pool[i % len(pool)]
+
+    def _maybe_respawn_powerup(self):
+        if len(self.inventory) >= INVENTORY_SIZE:
+            return
+        if self._count_pups() >= MIN_POWERUPS_ON_MAP:
+            return
+        self._spawn_powerups(MIN_POWERUPS_ON_MAP - self._count_pups())
 
     def valid(self, r: int, c: int) -> bool:
         return (
@@ -166,7 +183,10 @@ class Game:
         if cell not in names:
             return
 
-        self.item = cell
+        if not self._add_item_to_inventory(cell):
+            self.msg = f"Inventory full. {names[cell]} stays on the ground."
+            return
+
         self.grid[self.hpos[0]][self.hpos[1]] = Cell.EMPTY
         self.item_flash = self.hpos
         self.score += SCORE_ITEM_PICKUP
@@ -176,15 +196,16 @@ class Game:
         """Use the held power-up if the Hunter is adjacent to/on the Aswang."""
         if self.state != GameState.PLAYING:
             return
-        if not self.item:
+        item_index = self._selected_item_index()
+        if item_index is None:
             self.msg = "No item to use!"
             return
         if self.dist(self.hpos, self.apos) > 1:
             self.msg = "Must be adjacent to the Aswang!"
             return
 
-        it = self.item
-        self.item = None
+        it = self.inventory.pop(item_index)
+        self._clamp_selected_item_index()
         self.score += SCORE_ITEM_USE
 
         if it == Cell.GARLIC:
@@ -202,6 +223,46 @@ class Game:
         self._check()
         if self.state == GameState.PLAYING:
             self._ai_turn()
+
+    def _selected_item_index(self):
+        if not self.inventory:
+            return None
+        self._clamp_selected_item_index()
+        return self.selected_item_index
+
+    def selected_item(self):
+        index = self._selected_item_index()
+        return None if index is None else self.inventory[index]
+
+    def _clamp_selected_item_index(self):
+        if not self.inventory:
+            self.selected_item_index = 0
+            return
+        self.selected_item_index = max(0, min(self.selected_item_index, len(self.inventory) - 1))
+
+    def _add_item_to_inventory(self, item, select_new: bool = False) -> bool:
+        if len(self.inventory) >= INVENTORY_SIZE:
+            return False
+
+        was_empty = not self.inventory
+        self.inventory.append(item)
+        if was_empty or select_new:
+            self.selected_item_index = len(self.inventory) - 1
+        return True
+
+    def select_inventory_slot(self, index: int):
+        if self.state != GameState.PLAYING:
+            return
+        if 0 <= index < len(self.inventory):
+            self.selected_item_index = index
+            names = {
+                Cell.GARLIC: "Garlic Clove",
+                Cell.WATER: "Holy Water",
+                Cell.AMULET: "Sacred Amulet",
+            }
+            self.msg = f"Selected slot {index + 1}: {names[self.inventory[index]]}."
+        else:
+            self.msg = f"Inventory slot {index + 1} is empty."
 
     def choose_room(self, index: int):
         """Resolve a safe-room choice after clearing a regular boss."""
@@ -251,19 +312,26 @@ class Game:
         self.msg = "Weapon Room: choose one item with 1, 2, or 3."
 
     def choose_weapon(self, index: int):
-        """Equip one offered weapon/power-up and advance to the next boss."""
+        """Add one offered weapon/power-up to inventory and advance to the next boss."""
         if self.state != GameState.WEAPON_CHOICE or index >= len(self.weapon_options):
             return
 
-        self.item = self.weapon_options[index]
+        selected = self.weapon_options[index]
         names = {
             Cell.GARLIC: "Garlic Clove",
             Cell.WATER: "Holy Water",
             Cell.AMULET: "Sacred Amulet",
         }
         self.weapon_options = []
-        self.msg = f"Equipped {names[self.item]}."
+        if self._add_item_to_inventory(selected, select_new=True):
+            reward_msg = f"Added {names[selected]} to inventory."
+        else:
+            self._clamp_selected_item_index()
+            replaced = self.inventory[self.selected_item_index]
+            self.inventory[self.selected_item_index] = selected
+            reward_msg = f"Inventory full: replaced selected {names[replaced]} with {names[selected]}."
         self._advance_after_safe_room()
+        self.msg = f"{reward_msg} {self.msg}"
 
     def _advance_after_safe_room(self):
         final = self.bosses_cleared >= REGULAR_BOSSES
@@ -290,9 +358,7 @@ class Game:
 
         self._contact_damage("The Aswang found you!")
 
-        if self._count_pups() < 3:
-            self._spawn()
-
+        self._maybe_respawn_powerup()
         self._check()
         self._award_survival_points()
 
@@ -370,6 +436,9 @@ class Game:
             "dz": self.dazed,
             "depth": self.ai_depth,
             "amax": self.aswang_max_hp,
+            "grid": [row[:] for row in self.grid],
+            "inventory": self.inventory[:],
+            "selected": self.selected_item_index,
         }
 
     def _restore(self, snap: dict):
@@ -381,3 +450,6 @@ class Game:
         self.dazed = snap["dz"]
         self.ai_depth = snap["depth"]
         self.aswang_max_hp = snap["amax"]
+        self.grid = [row[:] for row in snap["grid"]]
+        self.inventory = snap["inventory"][:]
+        self.selected_item_index = snap["selected"]

@@ -83,7 +83,13 @@ def main():
                     continue
 
                 if game.state in (GameState.PLAYING, GameState.ROOM_CHOICE):
-                    if   event.key in (pygame.K_UP,    pygame.K_w): game.move_hunter(-1,  0)
+                    if game.state == GameState.PLAYING and event.key == pygame.K_1:
+                        game.select_inventory_slot(0)
+                    elif game.state == GameState.PLAYING and event.key == pygame.K_2:
+                        game.select_inventory_slot(1)
+                    elif game.state == GameState.PLAYING and event.key == pygame.K_3:
+                        game.select_inventory_slot(2)
+                    elif event.key in (pygame.K_UP,    pygame.K_w): game.move_hunter(-1,  0)
                     elif event.key in (pygame.K_DOWN,  pygame.K_s): game.move_hunter( 1,  0)
                     elif event.key in (pygame.K_LEFT,  pygame.K_a): game.move_hunter( 0, -1)
                     elif event.key in (pygame.K_RIGHT, pygame.K_d): game.move_hunter( 0,  1)
